@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Steps">
+  <meta name="theme-color" content="#f4f3ef">
+  <title>Step Counter</title>
+  <link rel="stylesheet" href="explain.css">
+  <link rel="stylesheet" href="steps.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Step Counter <span>· neural net on the ankle</span></div>
+    <div class="right">
+      <span id="imu" class="pill bad">no IMU</span>
+      <a href="explain.html" class="link">gait: how it decides</a>
+      <a href="gait.html" class="link">gait: old page</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero2">
+      <div class="counter card">
+        <div class="kicker">Steps</div>
+        <div class="big" id="big" title="Tap for big view"><span id="count">–</span><span class="pm" id="count-unc"></span><span id="feet"></span></div>
+        <div class="row3">
+          <div><div class="kicker">Distance</div><div class="mid"><span id="meters">–</span> m <span class="pm" id="meters-unc"></span></div></div>
+          <div><div class="kicker">Pace</div><div class="mid"><span id="cadence">–</span> <small>steps/min</small></div></div>
+          <div><div class="kicker">Doing</div><div class="mid" id="activity">–</div></div>
+        </div>
+        <div class="row">
+          <button id="reset" class="primary">Reset to 0</button>
+          <button id="bigview">⛶ Big view</button>
+          <button id="clicks">🔇 Click per step</button>
+          <span class="sub" id="since"></span>
+        </div>
+        <div class="matrix-pick">LED matrix shows
+          <button data-model="steps">step count</button><button data-model="tree">activity</button>
+        </div>
+      </div>
+
+      <div class="card nets">
+        <h2>Right now, each net says…</h2>
+        <p class="sub">Five copies of the network, trained separately. They agree when it's easy and disagree when it's not. That spread is part of the ± on the count.</p>
+        <div id="per-net"></div>
+        <canvas id="rate" height="150"></canvas>
+        <p class="sub">Steps per second over the last minute. Line = average of the 5 nets, band = lowest to highest.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>How good is it?</h2>
+      <div id="quality" class="quality"><p class="sub">No step net yet. Record, then train on the laptop.</p></div>
+    </section>
+
+    <section class="card">
+      <h2>Record training / test data</h2>
+      <p class="sub">Press Record, walk while counting <b>every</b> step (both feet), press Stop, then type what you counted. For distance, walk a path you've measured and type the meters too.</p>
+      <div class="acts" id="acts"></div>
+      <div class="row">
+        <label>Who's wearing it <input id="person" value="tasha" autocomplete="off"></label>
+        <label>Seconds (0 = until Stop) <input id="seconds" type="number" value="0" min="0" max="600"></label>
+        <button id="rec" class="primary">Record</button>
+        <button id="stop">Stop</button>
+      </div>
+      <p id="rec-status" class="status"></p>
+      <form id="label-form" class="row" hidden>
+        <label>Steps you counted <input id="lab-steps" type="number" min="0" placeholder="e.g. 100"></label>
+        <label>Meters walked (if measured) <input id="lab-meters" type="number" min="0" step="0.1" placeholder="optional"></label>
+        <button class="primary" type="submit">Save</button>
+        <span class="sub" id="lab-file"></span>
+      </form>
+      <table id="recs"></table>
+    </section>
+  </main>
+
+  <script src="libs/socket.io.min.js"></script>
+  <script src="steps.js"></script>
+</body>
+</html>

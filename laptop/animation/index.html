@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step Counter Explained</title>
+<style>
+  :root { --bg: #f4f3ef; --ink: #1b1b19; }
+  html, body { margin: 0; background: var(--bg); }
+  canvas { display: block; margin: 0 auto; width: 100vw; max-width: 1280px; height: auto; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1280" height="720"></canvas>
+<script src="data.js"></script>
+<script>
+// Every number drawn here comes from Tasha's real model and recordings (data.js).
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+const W = 1280, H = 720;
+const DPR = 2;
+c.width = W * DPR; c.height = H * DPR; ctx.scale(DPR, DPR);
+
+const COL = { ink: '#1b1b19', muted: '#6d6c66', line: '#d9d7cf', card: '#ffffff', soft: '#ebe9e2',
+  walk: '#2f9a58', run: '#e05a24', blue: '#3b6fb6', red: '#d0412b', purple: '#8a55cc', gold: '#d9a21b' };
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
+// scene timeline (seconds)
+const SC = [
+  ['title', 0, 5], ['sensor', 5, 15], ['window', 15, 24], ['forward', 24, 42],
+  ['count', 42, 53], ['train', 53, 73], ['board', 73, 83], ['end', 83, 89],
+];
+const TOTAL = 89;
+
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const ease = (p) => p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+
+function text(s, x, y, size = 20, color = COL.ink, weight = 400, align = 'left') {
+  ctx.font = `${weight} ${size}px ${FONT}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.fillText(s, x, y);
+}
+function wrap(s, x, y, maxW, size = 20, color = COL.ink, weight = 400, lh = 1.35) {
+  ctx.font = `${weight} ${size}px ${FONT}`; ctx.fillStyle = color; ctx.textAlign = 'left';
+  let line = '', yy = y;
+  for (const w of s.split(' ')) {
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width > maxW && line) { ctx.fillText(line, x, yy); line = w; yy += size * lh; }
+    else line = t;
+  }
+  ctx.fillText(line, x, yy);
+}
+function card(x, y, w, h, fill = COL.card) {
+  ctx.fillStyle = fill; ctx.strokeStyle = COL.line; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, 16); ctx.fill(); ctx.stroke();
+}
+function header(n, title, sub, a = 1) {
+  ctx.globalAlpha = a;
+  ctx.fillStyle = COL.ink; ctx.beginPath(); ctx.arc(70, 66, 22, 0, 7); ctx.fill();
+  text(n, 70, 74, 22, '#fff', 800, 'center');
+  text(title, 108, 76, 34, COL.ink, 800);
+  if (sub) wrap(sub, 108, 112, 1080, 19, COL.muted);
+  ctx.globalAlpha = 1;
+}
+// diverging color for normalized inputs, sequential for activations
+function div(v) {
+  const t = clamp(v / 2.5, -1, 1);
+  return t >= 0 ? `rgba(208,65,43,${0.12 + 0.88 * t})` : `rgba(59,111,182,${0.12 + 0.88 * -t})`;
+}
+function seq(v, max) { const t = clamp(v / max); return `rgba(47,154,88,${0.06 + 0.94 * t})`; }
+function heat(M, x, y, w, h, colorFn, upto = 1) {
+  const R = M.length, C = M[0].length, cw = w / C, ch = h / R;
+  const cols = Math.floor(C * upto);
+  for (let r = 0; r < R; r++) for (let k = 0; k < cols; k++) {
+    ctx.fillStyle = colorFn(M[r][k]); ctx.fillRect(x + k * cw, y + r * ch, cw + 0.3, ch + 0.3);
+  }
+  ctx.strokeStyle = COL.line; ctx.strokeRect(x, y, w, h);
+}
+function arrow(x1, y1, x2, y2, color = COL.muted, lw = 2) {
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  ctx.beginPath(); ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - 10 * Math.cos(a - 0.4), y2 - 10 * Math.sin(a - 0.4));
+  ctx.lineTo(x2 - 10 * Math.cos(a + 0.4), y2 - 10 * Math.sin(a + 0.4)); ctx.fill();
+  ctx.lineWidth = 1;
+}
+function plot(arr, x, y, w, h, lo, hi, color, lw = 2, n = arr.length) {
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const px = x + w * i / (arr.length - 1), py = y + h * (1 - (arr[i] - lo) / (hi - lo));
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.stroke(); ctx.lineWidth = 1;
+}
+const max2 = (M) => Math.max(...M.flat());
+
+// ------------------------------------------------------------------ scenes
+function title(t) {
+  const a = prog(t, 0, 1);
+  ctx.globalAlpha = a;
+  text('👣', W / 2, 250, 90, COL.ink, 400, 'center');
+  text('How the step counter works', W / 2, 360, 56, COL.ink, 800, 'center');
+  text('from an ankle sensor, through a neural net, to back-propagation', W / 2, 410, 24, COL.muted, 400, 'center');
+  text('UNO Q + MPU-6050 · PyTorch · every number here is from the real model and recordings', W / 2, 470, 17, COL.muted, 400, 'center');
+  ctx.globalAlpha = 1;
+}
+
+function sensor(t) {
+  header('1', 'The sensor', 'An MPU-6050 in a pouch on the ankle reads acceleration (x, y, z) and spin (x, y, z) 50 times a second.', prog(t, 0, 0.6));
+  card(60, 160, 1160, 480);
+  const p = prog(t, 0.3, 9.5);
+  const n = Math.max(2, Math.floor(D.seg_mag.length * p));
+  text('total acceleration (g)', 90, 205, 16, COL.muted);
+  plot(D.seg_mag, 90, 215, 1100, 170, 0, 4, COL.blue, 2, n);
+  text('total spin (°/s)', 90, 420, 16, COL.muted);
+  plot(D.seg_gyro, 90, 430, 1100, 170, 0, 600, COL.ink, 2, n);
+  const tmax = D.seg_mag.length / 50;
+  for (const s of D.steps_t) {
+    const fx = s / tmax; if (fx > p) continue;
+    const px = 90 + 1100 * fx;
+    ctx.fillStyle = COL.walk; ctx.globalAlpha = 0.5; ctx.fillRect(px - 1, 215, 2, 385); ctx.globalAlpha = 1;
+  }
+  if (t > 4) {
+    ctx.globalAlpha = prog(t, 4, 5);
+    card(860, 175, 340, 70, '#f6fbf7');
+    wrap('Green lines = steps. Every swing of the leg is a big spin peak = 2 steps (one per foot).', 875, 202, 315, 15, COL.ink);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function windowScene(t) {
+  header('2', 'A 2-second window', 'Every 0.5 s the board cuts out the last 2 s: 8 channels (6 sensors + total acceleration + total spin) × 100 readings.', prog(t, 0, 0.6));
+  const names = ['accel x', 'accel y', 'accel z', 'spin x', 'spin y', 'spin z', '|accel|', '|spin|'];
+  card(60, 160, 1160, 480);
+  const p = ease(prog(t, 1, 4));
+  // raw traces collapse into a heatmap
+  const x0 = 220, y0 = 200, w = 900, rowH = 48;
+  for (let r = 0; r < 8; r++) {
+    const row = D.raw[r];
+    const lo = Math.min(...row), hi = Math.max(...row) + 1e-6;
+    text(names[r], x0 - 20, y0 + r * rowH + 30, 15, COL.muted, 600, 'right');
+    ctx.globalAlpha = 1 - p;
+    plot(row, x0, y0 + r * rowH + 6, w, rowH - 12, lo, hi, COL.ink, 1.5);
+    ctx.globalAlpha = p;
+    heat([D.x[r]], x0, y0 + r * rowH + 4, w, rowH - 8, div);
+    ctx.globalAlpha = 1;
+  }
+  if (t > 5) {
+    ctx.globalAlpha = prog(t, 5, 6);
+    wrap('Each channel is shifted and scaled to the same range first (blue = below its usual value, red = above), so spin in °/s and acceleration in g count equally.', 220, 600, 900, 17, COL.ink);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function forward(t) {
+  header('3', 'Forward pass: inside the network', 'Small layers turn 800 numbers into 1 answer: how many steps per second right now.', prog(t, 0, 0.6));
+  const top = 190;
+  // input
+  heat(D.x, 50, top + 40, 240, 120, div);
+  text('input', 170, top + 20, 16, COL.ink, 700, 'center');
+  text('8 channels × 100', 170, top + 185, 14, COL.muted, 400, 'center');
+  // conv1 filter sliding
+  const p1 = prog(t, 1.5, 6);
+  if (p1 > 0 && p1 < 1) {
+    ctx.strokeStyle = COL.gold; ctx.lineWidth = 3;
+    ctx.strokeRect(50 + 240 * p1 * 0.91, top + 38, 240 * 0.09, 124); ctx.lineWidth = 1;
+  }
+  arrow(300, top + 100, 340, top + 100);
+  heat(D.a1, 350, top + 20, 220, 160, (v) => seq(v, max2(D.a1)), p1);
+  text('conv 1: 16 pattern detectors', 460, top + 10, 15, COL.ink, 700, 'center');
+  text('16 × 50 (after pooling)', 460, top + 200, 14, COL.muted, 400, 'center');
+  const p2 = prog(t, 6, 9);
+  arrow(580, top + 100, 620, top + 100);
+  heat(D.a2, 630, top + 20, 130, 160, (v) => seq(v, max2(D.a2)), p2);
+  text('conv 2 + 3:', 695, top - 8, 15, COL.ink, 700, 'center');
+  text('patterns of patterns', 695, top + 10, 15, COL.ink, 700, 'center');
+  text('16 × 25', 695, top + 200, 14, COL.muted, 400, 'center');
+  const p3 = prog(t, 9, 11);
+  arrow(770, top + 100, 810, top + 100);
+  const gmax = Math.max(...D.g), fmax = Math.max(...D.f1);
+  for (let i = 0; i < 16; i++) {
+    if (i / 16 > p3) break;
+    ctx.fillStyle = seq(D.g[i], gmax); ctx.beginPath(); ctx.arc(830, top + 25 + i * 10, 4.5, 0, 7); ctx.fill();
+  }
+  text('average', 830, top + 10, 15, COL.ink, 700, 'center');
+  text('over time', 830, top + 200, 14, COL.muted, 400, 'center');
+  const p4 = prog(t, 11, 13);
+  arrow(850, top + 100, 890, top + 100);
+  for (let i = 0; i < 16; i++) {
+    if (i / 16 > p4) break;
+    ctx.fillStyle = seq(D.f1[i], fmax); ctx.beginPath(); ctx.arc(910, top + 25 + i * 10, 4.5, 0, 7); ctx.fill();
+  }
+  text('dense', 910, top + 10, 15, COL.ink, 700, 'center');
+  text('16 numbers', 910, top + 200, 14, COL.muted, 400, 'center');
+  const p5 = prog(t, 13, 14.5);
+  arrow(930, top + 100, 980, top + 100, p5 > 0 ? COL.ink : COL.line);
+  ctx.globalAlpha = p5;
+  card(990, top + 40, 230, 120, '#f6fbf7');
+  text(D.out.toFixed(2), 1105, top + 115, 56, COL.walk, 800, 'center');
+  text('steps per second', 1105, top + 145, 15, COL.muted, 400, 'center');
+  ctx.globalAlpha = 1;
+  // explanation strip
+  card(50, 450, 1170, 200);
+  const lines = [
+    [1, 'A conv filter (gold box) is 9 readings wide (0.18 s). It slides along the window and lights up wherever its pattern appears, like a heel strike or a leg swing.'],
+    [6, 'Pooling keeps the strongest response from each pair of time steps, so later layers see a longer stretch of time at once.'],
+    [9, 'Averaging over time gives 16 numbers that say how much of each pattern happened, however the steps lined up in the window.'],
+    [11, 'The dense layers mix those 16 numbers into one answer. Softplus at the end keeps it from going below 0.'],
+  ];
+  let y = 490;
+  for (const [ts, s] of lines) {
+    if (t < ts) break;
+    ctx.globalAlpha = prog(t, ts, ts + 0.8);
+    wrap('• ' + s, 75, y, 1120, 17, COL.ink); y += 42; ctx.globalAlpha = 1;
+  }
+  text(`${D.params.toLocaleString()} weights in total, all learned from data`, 1195, 635, 14, COL.muted, 600, 'right');
+}
+
+function countScene(t) {
+  header('4', 'Counting', 'Five copies of the net answer every 0.5 s. The board adds rate × 0.5 s to the count.', prog(t, 0, 0.6));
+  card(60, 160, 520, 480);
+  text('the 5 nets on this window', 90, 200, 18, COL.ink, 700);
+  D.per.forEach((v, i) => {
+    const y = 240 + i * 50, wv = 300 * v / 2.2 * ease(prog(t, 0.5 + i * 0.2, 1.5 + i * 0.2));
+    text(`net ${i + 1}`, 90, y + 18, 16, COL.muted);
+    ctx.fillStyle = COL.soft; ctx.fillRect(160, y, 300, 24);
+    ctx.fillStyle = COL.walk; ctx.fillRect(160, y, wv, 24);
+    text(`${v.toFixed(2)}/s`, 475, y + 18, 16, COL.ink, 700);
+  });
+  const mean = D.per.reduce((a, b) => a + b) / 5, sd = Math.sqrt(D.per.reduce((a, b) => a + (b - mean) ** 2, 0) / 5);
+  wrap(`Average ${mean.toFixed(2)}/s. They differ by ±${sd.toFixed(2)}, and that spread becomes part of the ± on the count.`, 90, 530, 460, 17, COL.ink);
+  // odometer over a real 20 s of walking, sped up 2x
+  card(610, 160, 610, 480);
+  const k = Math.min(D.hops.length - 1, Math.floor(prog(t, 2, 10.5) * (D.hops.length - 1)));
+  const [rate, cnt] = D.hops[k];
+  text('steps', 640, 205, 18, COL.muted, 700);
+  text(Math.round(cnt).toString(), 640, 330, 130, COL.ink, 800);
+  const meters = cnt * (D.stride.a + D.stride.b * rate * 60);
+  text(`${meters.toFixed(1)} m`, 1190, 250, 40, COL.ink, 800, 'right');
+  text(`${Math.round(rate * 60)} steps/min`, 1190, 290, 20, COL.muted, 600, 'right');
+  plot(D.hops.map((h) => h[0]), 640, 400, 550, 150, 0, 2.5, COL.walk, 2.5, k + 1);
+  text('steps per second, 20 s of a real walk (played 2× fast)', 640, 580, 15, COL.muted);
+  wrap(`distance = steps × meters per step. Meters per step = ${D.stride.a.toFixed(2)} + ${D.stride.b.toFixed(4)} × pace, from walks on a measured path.`, 640, 610, 560, 14, COL.muted);
+}
+
+function train(t) {
+  header('5', 'Training in PyTorch: back-propagation', 'How the 6,097 weights got their values: guess, measure how wrong, push the blame backwards, nudge, repeat.', prog(t, 0, 0.6));
+  // network as boxes
+  const boxes = [['input', 70], ['conv 1', 210], ['conv 2', 330], ['conv 3', 450], ['dense', 570], ['output', 690]];
+  const y = 210, bw = 96, bh = 70;
+  const fwd = prog(t, 1, 4);                    // forward pulse
+  const back = prog(t, 7.5, 11.5);              // backward pulse
+  boxes.forEach(([name, x], i) => {
+    const hitF = fwd * (boxes.length - 1) >= i;
+    const hitB = back > 0 && (1 - back) * (boxes.length - 1) <= i && i > 0;
+    let fill = COL.card;
+    if (hitF && fwd < 1) fill = '#e8f0fb';
+    if (hitB) fill = '#fbe9e6';
+    card(x, y, bw, bh, fill);
+    text(name, x + bw / 2, y + 42, 16, COL.ink, 700, 'center');
+    if (i < boxes.length - 1) arrow(x + bw + 2, y + 35, boxes[i + 1][1] - 4, y + 35, COL.line);
+    if (hitB && i > 0 && i < 5) {
+      const j = (Math.sin(t * 40 + i) * 2);
+      text('w − η·∂loss/∂w', x + bw / 2 + j, y + 95, 12, COL.red, 700, 'center');
+    }
+  });
+  // forward pulse dot
+  if (fwd > 0 && fwd < 1) {
+    const px = 70 + bw / 2 + fwd * (690 - 70);
+    ctx.fillStyle = COL.blue; ctx.beginPath(); ctx.arc(px, y - 14, 8, 0, 7); ctx.fill();
+    text('forward', px, y - 28, 13, COL.blue, 700, 'center');
+  }
+  // loss
+  if (t > 4) {
+    ctx.globalAlpha = prog(t, 4, 5);
+    card(830, 190, 390, 120, '#fff8f0');
+    text(`net says ${D.out.toFixed(2)}/s`, 850, 225, 18, COL.ink, 700);
+    text(`label says ${D.target.toFixed(2)}/s`, 850, 252, 18, COL.walk, 700);
+    const L = (D.out - D.target) ** 2;
+    text(`loss = (${D.out.toFixed(2)} − ${D.target.toFixed(2)})² = ${L.toFixed(3)}`, 850, 288, 18, COL.red, 800);
+    ctx.globalAlpha = 1;
+    arrow(790, y + 35, 826, y + 35, COL.line);
+  }
+  // backward pulse
+  if (back > 0 && back < 1) {
+    const px = 690 + bw / 2 - back * (690 - 70);
+    ctx.fillStyle = COL.red; ctx.beginPath(); ctx.arc(px, y + bh + 14, 8, 0, 7); ctx.fill();
+    text('loss.backward()', px, y + bh + 40, 13, COL.red, 700, 'center');
+  }
+  // explanation
+  card(70, 340, 620, 310);
+  const steps = [
+    [1, 'blue', 'Forward: a batch of 64 windows goes through the net, which guesses steps/s for each.'],
+    [4, 'red', 'Loss: compare with the label (made from heel strikes, scaled to my hand counts). Squared error, so big misses count a lot more.'],
+    [7.5, 'red', 'Back-propagation: the chain rule works out, for every one of the 6,097 weights, which way it should move to make the loss smaller.'],
+    [11.5, 'ink', 'optimizer.step(): Adam nudges every weight a little bit downhill. Then the next batch, about 90 times per epoch, for 40 epochs.'],
+  ];
+  let yy = 378;
+  for (const [ts, col, s] of steps) {
+    if (t < ts) break;
+    ctx.globalAlpha = prog(t, ts, ts + 0.8);
+    wrap(s, 95, yy, 570, 17, COL[col]); yy += 70; ctx.globalAlpha = 1;
+  }
+  // real loss curves
+  card(720, 340, 500, 310);
+  text('real training loss, 5 nets', 745, 372, 17, COL.ink, 700);
+  const pl = prog(t, 11.5, 19);
+  const lx = 760, ly = 390, lw = 430, lh = 220;
+  const lo = Math.log10(0.008), hi = Math.log10(0.6);
+  ctx.strokeStyle = COL.line; ctx.strokeRect(lx, ly, lw, lh);
+  text('epoch', lx + lw / 2, ly + lh + 30, 13, COL.muted, 400, 'center');
+  text('1', lx, ly + lh + 16, 12, COL.muted, 400, 'center'); text('40', lx + lw, ly + lh + 16, 12, COL.muted, 400, 'center');
+  const colors = [COL.blue, COL.walk, COL.run, COL.purple, COL.gold];
+  D.losses.forEach((ls, i) => {
+    const logs = ls.map((v) => Math.log10(Math.max(v, 0.008)));
+    plot(logs, lx, ly, lw, lh, lo, hi, colors[i], 2, Math.max(1, Math.floor(ls.length * pl)));
+  });
+  if (pl > 0.95) {
+    text(`${D.losses[0][0].toFixed(2)} → ${D.losses[0].at(-1).toFixed(3)}`, lx + lw - 10, ly + 30, 18, COL.ink, 800, 'right');
+  }
+}
+
+function board(t) {
+  header('6', 'From PyTorch to the UNO Q', 'The board can\'t run PyTorch, so the trained weights are saved as numbers and the board does the same math in numpy.', prog(t, 0, 0.6));
+  const items = [
+    ['🧠 ×5', 'train 5 nets in PyTorch on the laptop'],
+    ['📄', 'save all weights to steps_model.json'],
+    ['🔌', 'UNO Q runs the same layers in numpy (matches PyTorch to 0.00000002)'],
+    ['👣', 'phone page + LED matrix show the count, ± and distance'],
+  ];
+  items.forEach(([ic, s], i) => {
+    const a = prog(t, 0.8 + i * 1.2, 1.6 + i * 1.2);
+    ctx.globalAlpha = a;
+    card(90 + i * 285, 200, 255, 200);
+    text(ic, 90 + i * 285 + 127, 275, 46, COL.ink, 400, 'center');
+    ctx.globalAlpha = a; wrap(s, 110 + i * 285, 320, 215, 17, COL.ink);
+    if (i < 3) arrow(90 + i * 285 + 258, 300, 90 + (i + 1) * 285 - 4, 300, COL.muted);
+    ctx.globalAlpha = 1;
+  });
+  if (t > 6) {
+    ctx.globalAlpha = prog(t, 6, 7);
+    card(90, 450, 1110, 180, '#f6fbf7');
+    text('How good is it?', 120, 495, 24, COL.ink, 800);
+    const s = D.test;
+    wrap(`Each recording was counted by a net trained without it. Walking and running: off by ${s.mean_abs_pct_error.toFixed(1)}% on average (it counts ${s.mean_pct_error.toFixed(1)}% high on average). Standing: about 0 phantom steps. Biking is the weak spot, because only 2 biking recordings is too few for it to learn that pedaling isn't walking.`, 120, 530, 1050, 18, COL.ink);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function end(t) {
+  ctx.globalAlpha = prog(t, 0, 1);
+  text('sensor → 2 s window → conv net → steps/s → count', W / 2, 330, 34, COL.ink, 800, 'center');
+  text('trained with PyTorch + back-propagation, run on the UNO Q', W / 2, 380, 22, COL.muted, 400, 'center');
+  text('👣', W / 2, 470, 60, COL.ink, 400, 'center');
+  ctx.globalAlpha = 1;
+}
+
+const FN = { title, sensor, window: windowScene, forward, count: countScene, train, board, end };
+// ?from=24&to=53 plays just that stretch (for splitting into chapters)
+const Q = new URLSearchParams(location.search);
+const FROM = Number(Q.get('from') || 0), TO = Number(Q.get('to') || TOTAL);
+let t0 = null;
+function frame(now) {
+  if (t0 === null) t0 = now;
+  const t = FROM + ((now - t0) / 1000) % (TO - FROM);
+  ctx.fillStyle = '#f4f3ef'; ctx.fillRect(0, 0, W, H);
+  for (const [name, a, b] of SC) if (t >= a && t < b) FN[name](t - a);
+  // progress bar
+  ctx.fillStyle = COL.soft; ctx.fillRect(0, H - 6, W, 6);
+  ctx.fillStyle = COL.ink; ctx.fillRect(0, H - 6, W * (t - FROM) / (TO - FROM), 6);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

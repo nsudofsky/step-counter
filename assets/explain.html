@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gait Trainer · How it decides</title>
+  <link rel="stylesheet" href="explain.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Gait Trainer <span>· how it decides</span></div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="live" class="on">How it decides</button>
+      <button role="tab" data-tab="data">Training data</button>
+    </nav>
+    <div class="right">
+      <span id="imu" class="pill bad">no IMU</span>
+      <a href="gait.html" class="link">old page</a>
+    </div>
+  </header>
+
+  <!-- ============================================================ LIVE -->
+  <main id="tab-live">
+    <section class="hero" id="hero">
+      <div class="answer">
+        <div class="emoji" id="hero-emoji">❔</div>
+        <div>
+          <div class="kicker" id="hero-kicker">The LED matrix says</div>
+          <div class="word" id="hero-word">waiting…</div>
+          <div class="agree" id="agree"></div>
+        </div>
+      </div>
+      <div class="timeline">
+        <div class="tl-row"><span>Model 1</span><canvas id="tl-peak" height="26"></canvas></div>
+        <div class="tl-row"><span>Model 2</span><canvas id="tl-tree" height="26"></canvas></div>
+        <div class="tl-foot"><span>60 s ago</span><span>now</span></div>
+        <div class="matrix-pick">LED matrix shows
+          <button data-model="peak">Model 1</button><button data-model="tree">Model 2</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card sensor">
+      <div class="step">1</div>
+      <div class="grow">
+        <h2>The ankle sensor, last 2.5 seconds</h2>
+        <p class="sub" id="sensor-sub">Both models look at this same 2.5 s slice, twice a second.</p>
+        <canvas id="sensor" height="150"></canvas>
+      </div>
+    </section>
+
+    <div class="models">
+      <section class="card">
+        <div class="step">2</div>
+        <div class="grow">
+          <h2>Model 1 <span class="tag">one number</span></h2>
+          <p class="sub" id="m1-sub">Only watches the biggest push in one direction.</p>
+          <div class="bignum"><span id="m1-value">–</span><small>g</small></div>
+          <canvas id="m1-line" height="120"></canvas>
+          <p class="because" id="m1-because"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="step">3</div>
+        <div class="grow">
+          <h2>Model 2 <span class="tag">yes / no questions</span></h2>
+          <p class="sub">A decision tree using all 6 IMU channels. It asks questions until it reaches an answer.</p>
+          <ol class="questions" id="m2-steps"></ol>
+          <details class="whole-tree">
+            <summary>See the whole tree</summary>
+            <div id="m2-tree" class="tree"></div>
+          </details>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ============================================================ DATA -->
+  <main id="tab-data" hidden>
+    <section class="counts" id="counts"></section>
+
+    <section class="card">
+      <h2>What each activity looks like</h2>
+      <p class="sub" id="ex-sub">2.5 s from the middle of one recording of each. Same scale on all four.</p>
+      <div class="examples" id="examples"></div>
+    </section>
+
+    <section class="card">
+      <h2>What Model 1 learned</h2>
+      <p class="sub" id="d1-sub">Every dot is one 2.5 s window of training data. The dashed lines are the 3 thresholds. ▲ = you, right now.</p>
+      <canvas id="d1" height="260"></canvas>
+    </section>
+
+    <section class="card">
+      <h2>What Model 2 learned</h2>
+      <p class="sub">Every dot is one training window, placed by two of the tree's numbers. The dashed lines are the tree's cut points. The ringed dot is you, right now.</p>
+      <div class="row">
+        <label>across <select id="d2-x"></select></label>
+        <label>up <select id="d2-y"></select></label>
+      </div>
+      <canvas id="d2" height="380"></canvas>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <section class="card">
+      <h2>How well each model does on data it never saw</h2>
+      <p class="sub" id="cv-sub"></p>
+      <div class="scores" id="scores"></div>
+    </section>
+
+    <section class="card">
+      <h2>Record more</h2>
+      <div class="acts" id="acts"></div>
+      <div class="row">
+        <label>Who's wearing it <input id="person" value="tasha" autocomplete="off"></label>
+        <label>Seconds <input id="seconds" type="number" value="45" min="10" max="300"></label>
+        <button id="rec" class="primary">Record</button>
+        <button id="stop">Stop</button>
+        <button id="train" class="primary">Retrain both models</button>
+      </div>
+      <p id="rec-status" class="status"></p>
+      <table id="recs"></table>
+    </section>
+  </main>
+
+  <script src="libs/socket.io.min.js"></script>
+  <script src="explain.js"></script>
+</body>
+</html>

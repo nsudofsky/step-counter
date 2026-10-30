@@ -1,0 +1,6 @@
+name: Step Counter
+icon: 👣
+description: Ankle-worn MPU-6050 that counts your steps with a PyTorch-trained neural net (run in numpy on the board) and estimates how far you walked. Built on the Gait Trainer, which still tells standing, walking, running and biking apart.
+
+bricks:
+  - arduino:web_ui

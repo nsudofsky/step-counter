@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gait Trainer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Gait Trainer</h1>
+    <a href="explain.html">How it decides →</a>
+    <span id="imu" class="pill bad">no IMU</span>
+  </header>
+
+  <!-- What both models think right now. Tap one to put it on the LED matrix. -->
+  <section class="now">
+    <button class="verdict" id="v-peak" data-model="peak">
+      <span class="which">Model 1 · one peak</span>
+      <span class="emoji" id="e-peak">❔</span>
+      <span class="label" id="l-peak">–</span>
+    </button>
+    <button class="verdict" id="v-tree" data-model="tree">
+      <span class="which">Model 2 · all IMU</span>
+      <span class="emoji" id="e-tree">❔</span>
+      <span class="label" id="l-tree">–</span>
+    </button>
+  </section>
+  <p class="hint">★ = shown on the LED matrix (tap to switch) · <span id="cadence">– strides/min</span></p>
+
+  <section class="card">
+    <h2>Model 1: peak acceleration along <span id="dir">?</span></h2>
+    <p class="sub">Biggest push along one direction in the last 2.5 s. Three thresholds split the number line.</p>
+    <canvas id="line" height="90"></canvas>
+    <canvas id="trace" height="120"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>Model 2: decision tree</h2>
+    <p class="sub">Yes/no questions about all 6 IMU channels. The highlighted path is what it's asking right now.</p>
+    <div id="tree" class="tree"><p class="sub">No model yet.</p></div>
+  </section>
+
+  <section class="card">
+    <h2>Record training data</h2>
+    <div id="acts" class="acts"></div>
+    <div class="row">
+      <label>Who's wearing it <input id="person" value="tasha" autocomplete="off"></label>
+      <label>Seconds <input id="seconds" type="number" value="45" min="10" max="300"></label>
+    </div>
+    <div class="row">
+      <button id="rec" class="primary">Record</button>
+      <button id="stop">Stop</button>
+    </div>
+    <p id="rec-status" class="big"></p>
+  </section>
+
+  <section class="card">
+    <h2>Train</h2>
+    <div class="row">
+      <label>Model 1 direction
+        <select id="direction">
+          <option value="">auto (best)</option>
+          <option>+x</option><option>-x</option><option>+y</option>
+          <option>-y</option><option>+z</option><option>-z</option>
+        </select>
+      </label>
+      <button id="train" class="primary">Train both models</button>
+    </div>
+    <p id="train-status"></p>
+    <div id="results"></div>
+  </section>
+
+  <section class="card">
+    <h2>Recordings</h2>
+    <table id="recs"></table>
+  </section>
+
+  <script src="libs/socket.io.min.js"></script>
+  <script src="gait.js"></script>
+</body>
+</html>
